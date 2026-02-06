@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ContextArea</title>
+    <style>
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #002ae2 0%, #78050f 100%);
+            min-height: 100vh;
+            color: white;
+        }
+
+        .header { text-align: center; margin-bottom: 16px; }
+        .header h1 { font-size: 2.5em; margin: 0 0 6px; text-shadow: 2px 2px 4px rgba(0,0,0,.3); }
+        .header p { margin: 0; opacity: .85; }
+
+        /* ── config panel ─────────────────────────────────── */
+        .config-bar {
+            background: rgba(255,255,255,.1);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: .85em;
+        }
+
+        .config-bar label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .config-bar input[type="text"],
+        .config-bar input[type="number"] {
+            background: rgba(255,255,255,.15);
+            border: 1px solid rgba(255,255,255,.25);
+            border-radius: 4px;
+            color: white;
+            padding: 4px 8px;
+            font-size: inherit;
+            font-family: monospace;
+        }
+
+        .config-bar input[type="text"] { width: 160px; }
+        .config-bar input[type="number"] { width: 80px; }
+
+        .config-bar button {
+            background: rgba(255,255,255,.2);
+            border: 1px solid rgba(255,255,255,.35);
+            border-radius: 4px;
+            color: white;
+            padding: 4px 14px;
+            cursor: pointer;
+            font-size: inherit;
+        }
+        .config-bar button:hover { background: rgba(255,255,255,.3); }
+
+        .config-toggle {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 1em;
+            padding: 4px 8px;
+            opacity: .7;
+        }
+        .config-toggle:hover { opacity: 1; }
+
+        .config-bar.collapsed { display: none; }
+
+        /* ── editor ───────────────────────────────────────── */
+        #editor-container {
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,.3);
+            height: 600px;
+            position: relative;
+        }
+
+        /* ── status bar ───────────────────────────────────── */
+        .status-bar {
+            background: rgba(255,255,255,.1);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+            padding: 10px 15px;
+            margin-top: 14px;
+            font-size: .85em;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px; height: 14px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin .6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── suggestion legend ────────────────────────────── */
+        .suggestion-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 14px;
+            padding: 12px 15px;
+            background: rgba(255,255,255,.06);
+            backdrop-filter: blur(10px);
+            border-radius: 8px;
+        }
+
+        .suggestion-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: .85em;
+            opacity: .85;
+        }
+
+        .suggestion-legend-item .icon {
+            width: 18px;
+            height: 18px;
+            object-fit: contain;
+            flex-shrink: 0;
+        }
+
+        .suggestion-legend-item .url {
+            opacity: .5;
+            font-size: .9em;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>ContextArea</h1>
+        <p>Monaco editor with URL context, smart paste &amp; drag-and-drop &mdash; type <strong>@</strong> for MCP servers
+            <button class="config-toggle" id="toggle-config" title="Toggle settings">&#9881;</button>
+        </p>
+    </div>
+
+    <div class="config-bar" id="config-bar">
+        <label>Paste API <input type="text" id="cfg-paste" value="/paste"></label>
+        <label>Context API <input type="text" id="cfg-context" value="/context"></label>
+        <label>Paste threshold <input type="number" id="cfg-threshold" value="1000" min="0"></label>
+        <label>Debounce ms <input type="number" id="cfg-debounce" value="500" min="0"></label>
+        <button id="cfg-apply">Apply</button>
+    </div>
+
+    <div id="editor-container"></div>
+
+    <div class="status-bar">
+        <div id="status-message">Ready</div>
+        <div id="server-count"></div>
+    </div>
+
+    <div class="suggestion-legend" id="suggestion-legend"></div>
+
+    <script src="https://unpkg.com/monaco-editor@0.44.0/min/vs/loader.js"></script>
+    <script src="contextarea.js"></script>
+    <script>
+        // ── MCP Server suggestions ──────────────────────────────────
+        const MCP_SERVERS = [
+            {
+                name: 'filesystem',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem',
+                icon: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>')}`,
+                description: 'Read, write, and manage local files and directories',
+            },
+            {
+                name: 'github',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/github',
+                icon: 'https://cdn.simpleicons.org/github/white',
+                description: 'Interact with GitHub repos, issues, PRs, and actions',
+            },
+            {
+                name: 'postgres',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/postgres',
+                icon: 'https://cdn.simpleicons.org/postgresql/4169E1',
+                description: 'Query and manage PostgreSQL databases',
+            },
+            {
+                name: 'slack',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/slack',
+                icon: 'https://cdn.simpleicons.org/slack',
+                description: 'Send messages and interact with Slack workspaces',
+            },
+            {
+                name: 'puppeteer',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/puppeteer',
+                icon: 'https://cdn.simpleicons.org/puppeteer/00D8A2',
+                description: 'Browser automation, screenshots, and web scraping',
+            },
+            {
+                name: 'memory',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/memory',
+                icon: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>')}`,
+                description: 'Persistent knowledge graph for long-term memory',
+            },
+            {
+                name: 'brave-search',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search',
+                icon: 'https://cdn.simpleicons.org/brave/FB542B',
+                description: 'Web and local search via Brave Search API',
+            },
+            {
+                name: 'fetch',
+                url: 'https://github.com/modelcontextprotocol/servers/tree/main/src/fetch',
+                icon: `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>')}`,
+                description: 'Fetch and extract content from URLs',
+            },
+        ];
+
+        // ── render legend ───────────────────────────────────────────
+        function renderLegend() {
+            document.getElementById('suggestion-legend').innerHTML = MCP_SERVERS.map(s =>
+                `<div class="suggestion-legend-item">
+                    <img class="icon" src="${s.icon}" alt="${s.name}">
+                    <strong>${s.name}</strong>
+                    <span class="url">${s.url.replace('https://github.com/modelcontextprotocol/servers/tree/main/src/', '')}</span>
+                </div>`
+            ).join('');
+            document.getElementById('server-count').textContent = `${MCP_SERVERS.length} MCP servers`;
+        }
+
+        // ── status helper ───────────────────────────────────────────
+        function setStatus(message, isLoading) {
+            const el = document.getElementById('status-message');
+            el.innerHTML = isLoading ? `<span class="spinner"></span> ${message}` : message;
+            if (!isLoading) clearTimeout(setStatus._t);
+            if (!isLoading && message !== 'Ready') {
+                setStatus._t = setTimeout(() => { el.textContent = 'Ready'; }, 3000);
+            }
+        }
+
+        // ── config toggle ───────────────────────────────────────────
+        document.getElementById('toggle-config').addEventListener('click', () => {
+            document.getElementById('config-bar').classList.toggle('collapsed');
+        });
+
+        // ── read config from inputs ─────────────────────────────────
+        function readConfig() {
+            return {
+                pasteApiUrl:    document.getElementById('cfg-paste').value,
+                contextApiUrl:  document.getElementById('cfg-context').value,
+                pasteThreshold: parseInt(document.getElementById('cfg-threshold').value, 10) || 1000,
+                contextDebounce: parseInt(document.getElementById('cfg-debounce').value, 10) || 500,
+            };
+        }
+
+        // ── boot ────────────────────────────────────────────────────
+        let instance = null;
+
+        function createEditor() {
+            const container = document.getElementById('editor-container');
+
+            let value = [
+                '# ContextArea',
+                '',
+                'Paste text, drop files, or type a URL. Type @ for MCP servers.',
+                '',
+                'https://example.com',
+                '',
+                'Read my project with @filesystem then search the web with @brave-search.',
+                '',
+                'Check the latest issues on @github and post a summary to @slack.',
+                '',
+            ].join('\n');
+            if (instance) {
+                value = instance.editor.getValue();
+                instance.dispose();
+                container.innerHTML = '';
+            }
+
+            const cfg = readConfig();
+
+            instance = ContextArea.create(container, {
+                ...cfg,
+                value,
+                suggestions: MCP_SERVERS,
+                onStatus: setStatus,
+            });
+
+            setStatus('Ready');
+        }
+
+        // Apply button re-creates with new config
+        document.getElementById('cfg-apply').addEventListener('click', createEditor);
+
+        // Init Monaco then create editor
+        require.config({ paths: { vs: 'https://unpkg.com/monaco-editor@0.44.0/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            createEditor();
+            renderLegend();
+
+            // Theme auto-switch
+            matchMedia('(prefers-color-scheme:dark)').addEventListener('change', e => {
+                monaco.editor.setTheme(e.matches ? 'vs-dark' : 'vs');
+            });
+        });
+    </script>
+</body>
+
+</html>
