@@ -28,6 +28,7 @@
     }
 
     const URL_REGEX = /(https?:\/\/[^\s]+)/g;
+    const MD_LINK_REGEX = /\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g;
 
     // Inject CSS once
     let cssInjected = false;
@@ -170,10 +171,31 @@
             const urlsInText = new Map();
 
             lines.forEach((line, i) => {
-                const re = new RegExp(URL_REGEX.source, 'g');
+                const mdLinkRanges = [];
                 let m;
+
+                // 1. Markdown links: [text](url)
+                const mdRe = new RegExp(MD_LINK_REGEX.source, 'g');
+                while ((m = mdRe.exec(line)) !== null) {
+                    const url = m[2];
+                    const fullStart = m.index;
+                    const fullEnd = m.index + m[0].length;
+                    mdLinkRanges.push({ start: fullStart, end: fullEnd });
+                    const range = new monaco.Range(i + 1, fullStart + 1, i + 1, fullEnd + 1);
+                    if (!urlsInText.has(url)) urlsInText.set(url, []);
+                    urlsInText.get(url).push({ range, lineIndex: i + 1 });
+                    const cached = this.contextCache.get(url);
+                    const isError = cached && cached.error;
+                    decorations.push({ range, options: { inlineClassName: isError ? 'url-decoration-error' : 'url-decoration' } });
+                }
+
+                // 2. Bare URLs (skip those already inside markdown links)
+                const re = new RegExp(URL_REGEX.source, 'g');
                 while ((m = re.exec(line)) !== null) {
-                    const url = m[0];
+                    const matchStart = m.index;
+                    const matchEnd = m.index + m[0].length;
+                    if (mdLinkRanges.some(r => matchStart >= r.start && matchEnd <= r.end)) continue;
+                    const url = m[0].replace(/[)\].,;:!?'"]+$/, '');
                     const range = new monaco.Range(i + 1, m.index + 1, i + 1, m.index + 1 + url.length);
                     if (!urlsInText.has(url)) urlsInText.set(url, []);
                     urlsInText.get(url).push({ range, lineIndex: i + 1 });
