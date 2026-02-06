@@ -1,0 +1,35 @@
+{
+  "$schema": "https://unpkg.com/wrangler@latest/config-schema.json",
+  "name": "context-worker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-02-01",
+  "dev": {
+    "port": 8787
+  },
+
+  "assets": {
+    "directory": "./public"
+  },
+
+  "kv_namespaces": [
+    {
+      "binding": "PASTES",
+      "id": "c582dfcc2f034037beb67658c17bf9a8"
+    }
+  ],
+
+  "env": {
+    "prod": {
+      "route": {
+        "custom_domain": true,
+        "pattern": "poc.contextarea.com"
+      },
+      "kv_namespaces": [
+        {
+          "binding": "PASTES",
+          "id": "c582dfcc2f034037beb67658c17bf9a8"
+        }
+      ]
+    }
+  }
+}

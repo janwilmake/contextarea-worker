@@ -6,6 +6,7 @@
  *     pasteApiUrl: '/paste',
  *     contextApiUrl: '/context',
  *     suggestions: [{ name, url, icon, description }],  // @-triggered autocomplete
+ *     onSubmit: (value, instance) => { ... },            // Shift+Enter callback
  *   });
  *   ca.editor   // underlying Monaco editor instance
  *   ca.dispose() // clean up
@@ -81,6 +82,7 @@
             this.inlayHintsChange = createEventEmitter();
 
             this.onStatus = options.onStatus || (() => {});
+            this.onSubmit = options.onSubmit || null;
 
             this._initEditor(options);
         }
@@ -121,6 +123,7 @@
 
             this.editor.onDidFocusEditorText(() => { ContextAreaInstance._active = this; });
 
+            this._setupKeybindings();
             this._registerProviders();
             this._setupPasteHandler();
             this._setupDragAndDrop();
@@ -136,6 +139,25 @@
             this._updateUrlDecorations();
             if (this.suggestions.length) this._updateMentionDecorations();
             this.editor.focus();
+        }
+
+        // ── keybindings ──────────────────────────────────────────────────
+
+        _setupKeybindings() {
+            const self = this;
+
+            // Shift+Enter → onSubmit
+            this.editor.addAction({
+                id: 'contextarea.submit',
+                label: 'Submit',
+                keybindings: [monaco.KeyMod.Shift | monaco.KeyCode.Enter],
+                run() {
+                    if (self.onSubmit) {
+                        const value = self.editor.getValue();
+                        self.onSubmit(value, self);
+                    }
+                },
+            });
         }
 
         // ── URL detection & decorations ─────────────────────────────────
