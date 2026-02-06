@@ -98,11 +98,9 @@ async function handleContext(url, corsHeaders) {
 		let type = 'unknown';
 
 		if (contentType.includes('text/html')) {
-			type = 'webpage';
-			const titleMatch = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-			if (titleMatch) title = titleMatch[1].trim();
-			const descMatch = text.match(/<meta[^>]*name=["']description["'][^>]*content=["']([\s\S]*?)["']/i);
-			if (descMatch) description = descMatch[1].trim();
+			return new Response(JSON.stringify({ error: 'HTML pages are not supported as context' }), {
+				headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+			});
 		} else if (contentType.includes('application/json')) {
 			type = 'json';
 		} else if (contentType.includes('text/')) {

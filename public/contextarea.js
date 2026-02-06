@@ -37,6 +37,8 @@
         style.textContent = `
             .monaco-editor .url-decoration { text-decoration: underline; color: #4da6ff !important; cursor: pointer; }
             .monaco-editor .url-decoration:hover { background: rgba(77,166,255,0.1) !important; }
+            .monaco-editor .url-decoration-error { text-decoration: underline wavy #ff4d4d; cursor: pointer; }
+            .monaco-editor .url-decoration-error:hover { background: rgba(255,77,77,0.1) !important; }
             .monaco-editor .ca-mention { color: #7cb7ff !important; font-weight: 600; background: rgba(124,183,255,0.1); border-radius: 3px; padding: 0 2px; }
             .ca-drop-overlay { position:absolute;inset:0;background:rgba(0,42,226,.95);border:4px dashed #fff;border-radius:10px;display:none;align-items:center;justify-content:center;z-index:10000;pointer-events:none; }
             .ca-drop-overlay.active { display:flex; }
@@ -96,7 +98,7 @@
                 minimap: { enabled: false },
                 automaticLayout: true,
                 inlayHints: { enabled: 'on', fontSize: 12 },
-                codeLens: true,
+                codeLens: false,
                 quickSuggestions: false,
                 suggestOnTriggerCharacters: (options.suggestions?.length > 0),
             }, options.editorOptions);
@@ -153,7 +155,9 @@
                     const range = new monaco.Range(i + 1, m.index + 1, i + 1, m.index + 1 + url.length);
                     if (!urlsInText.has(url)) urlsInText.set(url, []);
                     urlsInText.get(url).push({ range, lineIndex: i + 1 });
-                    decorations.push({ range, options: { inlineClassName: 'url-decoration' } });
+                    const cached = this.contextCache.get(url);
+                    const isError = cached && cached.error;
+                    decorations.push({ range, options: { inlineClassName: isError ? 'url-decoration-error' : 'url-decoration' } });
                 }
             });
 
@@ -198,8 +202,7 @@
                 }
                 if (promises.length) {
                     await Promise.all(promises);
-                    this.codeLensChange.fire();
-                    this.inlayHintsChange.fire();
+                    this._updateUrlDecorations();
                 }
             }, this.config.contextDebounce);
         }
@@ -221,11 +224,16 @@
                                     return { range, contents: [{ value: '\u23f3 Loading context...', isTrusted: true }] };
                                 }
                                 if (!data) return null;
+                                if (data.error) {
+                                    return { range, contents: [{ value: `**Error:** ${data.error}`, isTrusted: true }] };
+                                }
                                 let msg = `**${data.title || 'Untitled'}**\n\n`;
                                 if (data.type) msg += `Type: ${data.type}\n`;
                                 if (data.tokens) msg += `Tokens: ${data.tokens}\n`;
-                                if (data.description) msg += `\n${data.description}`;
-                                return { range, contents: [{ value: msg, isTrusted: true }] };
+                                if (data.description) msg += `\n${data.description}\n`;
+                                const args = encodeURIComponent(JSON.stringify([url, range]));
+                                msg += `\n[\ud83d\udd0d Expand](command:expandUrl?${args})`;
+                                return { range, contents: [{ value: msg, isTrusted: true, supportHtml: true }] };
                             }
                         }
                         return null;
@@ -246,6 +254,7 @@
                                 if (lineIndex < range.startLineNumber || lineIndex > range.endLineNumber) continue;
                                 let label = '';
                                 if (loading) label = '\u23f3 loading';
+                                else if (data && data.error) label = `\u26a0 ${data.error}`;
                                 else if (data) {
                                     if (data.tokens) label += `${data.tokens} tokens`;
                                     if (data.type) label += label ? ` \u2022 ${data.type}` : data.type;
@@ -287,30 +296,6 @@
                 })
             );
 
-            // Code lens
-            this.disposables.push(
-                monaco.languages.registerCodeLensProvider('markdown', {
-                    onDidChange: self.codeLensChange.event,
-                    provideCodeLenses(model) {
-                        const lenses = [];
-                        for (const [url, positions] of self.currentUrlsInText.entries()) {
-                            const data = self.contextCache.get(url);
-                            for (const { range } of positions) {
-                                lenses.push({
-                                    range,
-                                    command: {
-                                        id: 'expandUrl',
-                                        title: data ? `\ud83d\udd0d Expand ${data.title || 'URL'}` : '\ud83d\udd0d Expand',
-                                        arguments: [url, range],
-                                        tooltip: data?.title || 'Expand URL content',
-                                    },
-                                });
-                            }
-                        }
-                        return { lenses, dispose() {} };
-                    },
-                })
-            );
         }
 
         // ── expand URL ──────────────────────────────────────────────────
